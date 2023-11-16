@@ -358,23 +358,14 @@ void HAL_OSPI_MspInit(OSPI_HandleTypeDef* hospi)
     }
     __HAL_RCC_OSPI1_CLK_ENABLE();
 
-    __HAL_RCC_GPIOC_CLK_ENABLE();
     __HAL_RCC_GPIOF_CLK_ENABLE();
     /**OCTOSPI1 GPIO Configuration
-    PC11     ------> OCTOSPIM_P1_NCS
     PF8     ------> OCTOSPIM_P1_IO0
     PF6     ------> OCTOSPIM_P1_IO3
     PF7     ------> OCTOSPIM_P1_IO2
     PF10     ------> OCTOSPIM_P1_CLK
     PF9     ------> OCTOSPIM_P1_IO1
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_11;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-    GPIO_InitStruct.Alternate = GPIO_AF5_OCTOSPIM_P1;
-    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
     GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_9;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -465,15 +456,12 @@ void HAL_OSPI_MspDeInit(OSPI_HandleTypeDef* hospi)
     __HAL_RCC_OSPI1_CLK_DISABLE();
 
     /**OCTOSPI1 GPIO Configuration
-    PC11     ------> OCTOSPIM_P1_NCS
     PF8     ------> OCTOSPIM_P1_IO0
     PF6     ------> OCTOSPIM_P1_IO3
     PF7     ------> OCTOSPIM_P1_IO2
     PF10     ------> OCTOSPIM_P1_CLK
     PF9     ------> OCTOSPIM_P1_IO1
     */
-    HAL_GPIO_DeInit(GPIOC, GPIO_PIN_11);
-
     HAL_GPIO_DeInit(GPIOF, GPIO_PIN_8|GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_10
                           |GPIO_PIN_9);
 
@@ -625,6 +613,9 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
     GPIO_InitStruct.Alternate = GPIO_AF6_SPI3;
     HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
+    /* SPI3 interrupt Init */
+    HAL_NVIC_SetPriority(SPI3_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(SPI3_IRQn);
   /* USER CODE BEGIN SPI3_MspInit 1 */
 
   /* USER CODE END SPI3_MspInit 1 */
@@ -703,6 +694,8 @@ void HAL_SPI_MspDeInit(SPI_HandleTypeDef* hspi)
 
     HAL_GPIO_DeInit(GPIOG, GPIO_PIN_12|GPIO_PIN_10);
 
+    /* SPI3 interrupt DeInit */
+    HAL_NVIC_DisableIRQ(SPI3_IRQn);
   /* USER CODE BEGIN SPI3_MspDeInit 1 */
 
   /* USER CODE END SPI3_MspDeInit 1 */
