@@ -73,9 +73,10 @@ uint8_t frame_buf_0[6400]={0};
 uint8_t frame_buf_1[6400]={0};
 uint8_t frame_buf_flash[6400]={0};
 uint8_t play_mode=0;  //0=Static display, 1=Dynamic display
+uint8_t play_mode_source=0;  //0=flash, 1=frame_buf_0, 2=frame_buf_1
 uint8_t static_flag=0;  //0=buffer_0, 1=buffer_1
 uint8_t display_image_number=0;
-uint8_t total_image_in_flash=2;
+uint8_t total_image_in_flash=10;
 uint8_t image_80x80_rgb888[19200] = {[0 ... 19199] = 0xFF};
 
 
@@ -92,15 +93,14 @@ static void MX_I2C2_Init(void);
 static void MX_OCTOSPI2_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_SPI2_Init(void);
-static void MX_SPI3_Init(void);
 static void MX_UART4_Init(void);
 static void MX_DSIHOST_DSI_Init(void);
 static void MX_LTDC_Init(void);
+static void MX_SPI3_Init(void);
 /* USER CODE BEGIN PFP */
 static void mipi_config(void);
-static void SPI2BLE(void);
-static void SPI_master2slave(char * buf, char * frame_buf);
-static void Write_Registers_data(void);
+static void SPI_master2slave(char * buf, char * frame_buf, uint8_t image_flag);
+static void Write_Registers_data(uint8_t do_flag);
 static void I2C_Control_Voltage(void);
 static void LCD_PowerOn(void);
 void delay_us(int time);
@@ -151,10 +151,10 @@ int main(void)
   MX_OCTOSPI2_Init();
   MX_SPI1_Init();
   MX_SPI2_Init();
-  MX_SPI3_Init();
   MX_UART4_Init();
   MX_DSIHOST_DSI_Init();
   MX_LTDC_Init();
+  MX_SPI3_Init();
   /* USER CODE BEGIN 2 */
   mipi_config();
   HAL_UART_Transmit(&huart4, "master start", 12, 1000);
@@ -172,44 +172,11 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		/*for (int i = 0; i < 19200; i++)
+		if(play_mode_source == 0)
 		{
-			image_80x80_rgb888[i] = 0x00;
-			delay_us(10);
-			//HAL_Delay(1);
-		}
-		HAL_UART_Transmit(&huart4, "on ", 3, 1000);
-		HAL_Delay(1000);
-		for (int i = 0; i < 19200; i++)
-		{
-			image_80x80_rgb888[i] = 0xFF;
-			delay_us(10);
-			//HAL_Delay(1);
-		}
-		HAL_UART_Transmit(&huart4, "off ", 4, 1000);
-		HAL_Delay(1000);*/
-
-		if(play_mode == 0)
-		{
-			read_flash_page(&frame_buf_flash, display_image_number);
-			frame_buf_count = 0;
-			for (int i = 0; i < 6400;  i += 4)
+			if(play_mode == 0)
 			{
-				image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+1];
-				frame_buf_count += 2;
-				image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i];
-				frame_buf_count += 4;
-				image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+2];
-				frame_buf_count += 4;
-				image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+3];
-				frame_buf_count += 2;
-			}
-		}
-		else if(play_mode == 1)
-		{
-			for(int i=0; i<total_image_in_flash; i++)
-			{
-				read_flash_page(&frame_buf_flash, i);
+				read_flash_page(&frame_buf_flash, display_image_number);
 				frame_buf_count = 0;
 				for (int i = 0; i < 6400;  i += 4)
 				{
@@ -222,17 +189,64 @@ int main(void)
 					image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+3];
 					frame_buf_count += 2;
 				}
-				HAL_Delay(frame_rate);
 			}
-
+			else if(play_mode == 1)
+			{
+				for(int i=0; i<total_image_in_flash; i++)
+				{
+					if(play_mode_source != 0) break;
+					read_flash_page(&frame_buf_flash, i);
+					frame_buf_count = 0;
+					for (int i = 0; i < 6400;  i += 4)
+					{
+						image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+1];
+						frame_buf_count += 2;
+						image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i];
+						frame_buf_count += 4;
+						image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+2];
+						frame_buf_count += 4;
+						image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+3];
+						frame_buf_count += 2;
+					}
+					HAL_Delay(frame_rate);
+				}
+			}
+		}
+		else if(play_mode_source == 1)
+		{
+			frame_buf_count = 0;
+			for (int i = 0; i < 6400;  i += 4)
+			{
+				image_80x80_rgb888[frame_buf_count] = frame_buf_0[i+1];
+				frame_buf_count += 2;
+				image_80x80_rgb888[frame_buf_count] = frame_buf_0[i];
+				frame_buf_count += 4;
+				image_80x80_rgb888[frame_buf_count] = frame_buf_0[i+2];
+				frame_buf_count += 4;
+				image_80x80_rgb888[frame_buf_count] = frame_buf_0[i+3];
+				frame_buf_count += 2;
+			}
+		}
+		else if(play_mode_source == 2)
+		{
+			frame_buf_count = 0;
+			for (int i = 0; i < 6400;  i += 4)
+			{
+				image_80x80_rgb888[frame_buf_count] = frame_buf_1[i+1];
+				frame_buf_count += 2;
+				image_80x80_rgb888[frame_buf_count] = frame_buf_1[i];
+				frame_buf_count += 4;
+				image_80x80_rgb888[frame_buf_count] = frame_buf_1[i+2];
+				frame_buf_count += 4;
+				image_80x80_rgb888[frame_buf_count] = frame_buf_1[i+3];
+				frame_buf_count += 2;
+			}
 		}
 		HAL_Delay(10);
 
-		/*SPI2Flash();
-		HAL_Delay(1000);*/
-		//SPI2BLE();
-		//I2C_Control_Voltage();
-		//while (1);
+
+		/*I2C_Control_Voltage();
+		while (1);*/
 	}
   /* USER CODE END 3 */
 }
@@ -786,7 +800,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(flash_cs_GPIO_Port, flash_cs_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOF, flash_mosi_Pin|flash_clk_Pin|GPIO_PIN_14, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOF, flash_mosi_Pin|flash_clk_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|GPIO_PIN_7, GPIO_PIN_RESET);
@@ -864,13 +878,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PF14 */
-  GPIO_InitStruct.Pin = GPIO_PIN_14;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PE12 */
   GPIO_InitStruct.Pin = GPIO_PIN_12;
@@ -963,119 +970,80 @@ void mipi_config() {
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0x35, 0x00);
 }
 
-void SPI2BLE() {
-
-	OSPI_RegularCmdTypeDef s_command;
-
-		s_command.OperationType      = HAL_OSPI_OPTYPE_COMMON_CFG;
-		s_command.FlashId            = HAL_OSPI_FLASH_ID_1;
-		s_command.InstructionMode    = HAL_OSPI_INSTRUCTION_NONE;
-		s_command.Instruction        = 0x9f;
-		s_command.AddressMode        = HAL_OSPI_ADDRESS_NONE;
-		s_command.AddressSize        = HAL_OSPI_ADDRESS_8_BITS; //HAL_OSPI_ADDRESS_24_BITS;
-		s_command.Address            = 0x00;//0x000000;
-		s_command.AlternateBytesMode = HAL_OSPI_ALTERNATE_BYTES_NONE;
-		s_command.DataMode 					 = HAL_OSPI_DATA_1_LINE;
-		s_command.DummyCycles        = 8;
-		s_command.NbData = 160;
-		s_command.DataDtrMode = HAL_OSPI_DATA_DTR_DISABLE;
-		s_command.SIOOMode           = HAL_OSPI_SIOO_INST_EVERY_CMD;
-	    s_command.InstructionSize    = HAL_OSPI_INSTRUCTION_8_BITS;
-	    s_command.InstructionDtrMode = HAL_OSPI_INSTRUCTION_DTR_DISABLE;
-	    s_command.AddressDtrMode     = HAL_OSPI_ADDRESS_DTR_DISABLE;
-	    s_command.DQSMode            = HAL_OSPI_DQS_DISABLE;
-
-	/*if (HAL_OSPI_Command(&hospi1, &s_command, HAL_OSPI_TIMEOUT_DEFAULT_VALUE)	!= HAL_OK)
-	{
-		HAL_UART_Transmit(&huart4, "f", 1, 1000);
-	}*/
-
-	uint8_t rev[10] = {0};
-	if (HAL_OSPI_Transmit(&hospi2, "ATI", HAL_OSPI_TIMEOUT_DEFAULT_VALUE)!= HAL_OK)
-	{
-		HAL_UART_Transmit(&huart4, "e", 1, 1000);
-	}
-	if (HAL_OSPI_Receive(&hospi2, rev, HAL_OSPI_TIMEOUT_DEFAULT_VALUE)!= HAL_OK)
-	{
-		HAL_UART_Transmit(&huart4, &rev, 5, 1000);
-	}
-}
-
-void SPI_master2slave(char * buf, char * frame_buf) {
+void SPI_master2slave(char * buf, char * frame_buf, uint8_t image_flag) {
 	HAL_SPI_Transmit(&hspi1, &buf[0], 1, 1000);
 	HAL_SPI_Transmit(&hspi1, &buf[1], 1, 1000);
-	for(int i=0; i< 6400; i++)
+	if(image_flag == 1)
 	{
-		if (HAL_SPI_Transmit(&hspi1, &frame_buf[i], 1, 1000) == HAL_OK) {
-			//HAL_UART_Transmit(&huart4, "SPI_master2slave", 16, 1000);
+		for(int i=0; i< 6400; i++)
+		{
+			HAL_SPI_Transmit(&hspi1, &frame_buf[i], 1, 1000);
 		}
 	}
 }
 
-void Write_Registers_data() {
-	uint8_t length[1] = { 0 };
+void Write_Registers_data(uint8_t do_flag) {
 	uint8_t Register_Address[1] = { 0 };
 	uint8_t data[1] = { 0 };
 
-	//HAL_SPI_Receive(&hspi3, (uint8_t*) length, 1, 1000);
 	HAL_SPI_Receive(&hspi3, (uint8_t*) Register_Address, 1, 1000);
 	HAL_SPI_Receive(&hspi3, (uint8_t*) data, 1, 1000);
-	switch (Register_Address[0]) {
-	case 0: //Horizontal Resolution
-		break;
-	case 1: //Vertical Resolution
-		break;
-	case 2: //Horizontal blanking (High byte)
-		break;
-	case 3: //Horizontal blanking (Low byte)
-		break;
-	case 4: //Vertical blanking (High byte)
-		break;
-	case 5: //Vertical blanking (Low byte)
-		break;
-	case 0x06: //Frame rate x 2 (Hz)
-		HAL_UART_Transmit(&huart4, (uint8_t*)data, 1, 1000);
-		frame_rate=(uint32_t)data[0]*1000;
-		HAL_SPI_Transmit(&hspi1, &Register_Address[0], 1, 1000);
-		HAL_SPI_Transmit(&hspi1, &data[0], 1, 1000);
-		break;
-	case 7: //Show SPI flash content length
-		break;
-	case 8: //Content number of each frame
-		break;
-	case 9: //Clock rate of SPI
-		break;
-	case 10: //Clock rate of I2C
-		break;
-	case 11: //Pixel Mapping  one
-		break;
-	case 12: //Pixel Mapping one
-		break;
-	case 13: //Years of Version
-		break;
-	case 14: //Day of Version
-		break;
-	case 15: //Month of Version
-		break;
-	case 16: //Control A
-		HAL_SPI_Receive_IT(&hspi3, data, 1);
-		HAL_NVIC_SetPriority(SPI3_IRQn, 1, 0);
-		HAL_NVIC_EnableIRQ(SPI3_IRQn);
-		__HAL_SPI_ENABLE(&hspi3);
-
-		switch (data[0] & 0b00000011) {
-		case 0b00000000:  //Display content of frame buffer (0)
+	HAL_SPI_Transmit(&hspi1, &Register_Address[0], 1, 1000);
+	HAL_SPI_Transmit(&hspi1, &data[0], 1, 1000);
+	if(do_flag == 1)
+	{
+		switch (Register_Address[0]) {
+		case 0: //Horizontal Resolution
 			break;
-		case 0b00000001:  //Display content of frame buffer (1)
+		case 1: //Vertical Resolution
 			break;
-		case 0b00000010:  //Display SPI input content
+		case 2: //Horizontal blanking (High byte)
 			break;
-		case 0b00000011:  //Display Flash content
+		case 3: //Horizontal blanking (Low byte)
+			break;
+		case 4: //Vertical blanking (High byte)
+			break;
+		case 5: //Vertical blanking (Low byte)
+			break;
+		case 6: //Frame rate x 2 (Hz)
+			frame_rate=(uint32_t)data[0]*1000;
+			break;
+		case 7: //Show SPI flash content length
+			break;
+		case 8: //Content number of each frame
+			break;
+		case 9: //Clock rate of SPI
+			break;
+		case 10: //Clock rate of I2C
+			break;
+		case 11: //Pixel Mapping  one
+			break;
+		case 12: //Pixel Mapping one
+			break;
+		case 13: //Years of Version
+			break;
+		case 14: //Day of Version
+			break;
+		case 15: //Month of Version
+			break;
+		case 16: //Control A
+			switch (data[0] & 0b00000011) {
+			case 0b00000000:  //Display content of frame buffer (0)
+				play_mode_source = 1;
+				break;
+			case 0b00000001:  //Display content of frame buffer (1)
+				play_mode_source = 2;
+				break;
+			case 0b00000010:  //Display SPI input content
+				break;
+			case 0b00000011:  //Display Flash content
+				play_mode_source = 0;
+				break;
+			}
+			break;
+		case 19: //Status
 			break;
 		}
-		break;
-	case 19: //Status
-		break;
 	}
 }
 
@@ -1221,19 +1189,19 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef * hspi)
 				break;
 			case 0b00000001: //Command for DIP switch ID = 01
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
+				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
 				break;
 			case 0b00000010: //Command for DIP switch ID = 10
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
+				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
 				break;
 			case 0b00000011: //Command for DIP switch ID = 11
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
+				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
 				break;
 			default: //Broadcast to every board
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_0, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_0);
+				SPI_master2slave(&spi3_buf, &frame_buf_0, 1);
 				break;
 			}
 			break;
@@ -1247,26 +1215,48 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef * hspi)
 				break;
 			case 0b00000001: //Command for DIP switch ID = 01
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
+				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
 				break;
 			case 0b00000010: //Command for DIP switch ID = 10
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
+				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
 				break;
 			case 0b00000011: //Command for DIP switch ID = 11
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
+				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
 				break;
 			default: //Broadcast to every board
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_1, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_1);
+				SPI_master2slave(&spi3_buf, &frame_buf_1, 1);
 				break;
 			}
 			break;
 		case 0b00010000: //Write Registers data
-			HAL_SPI_Transmit(&hspi1, &spi3_buf[0], 1, 1000);
-			HAL_SPI_Transmit(&hspi1, &spi3_buf[1], 1, 1000);
-			Write_Registers_data();
+			SPI_master2slave(&spi3_buf, NULL, 0);
+			switch (spi3_buf[0] & 0b00000111) {
+			case 0b00000000: //Command for DIP switch ID = 00
+				if(BOARD_NUMBER==1)
+				{
+					Write_Registers_data(1);
+				}
+				else
+				{
+					Write_Registers_data(0);
+				}
+				break;
+			case 0b00000001: //Command for DIP switch ID = 01
+				Write_Registers_data(0);
+				break;
+			case 0b00000010: //Command for DIP switch ID = 10
+				Write_Registers_data(0);
+				break;
+			case 0b00000011: //Command for DIP switch ID = 11
+				Write_Registers_data(0);
+				break;
+			default: //Broadcast to every board
+				Write_Registers_data(1);
+				break;
+			}
 			break;
 		case 0b00011000: //Write partial content of frame buffer
 			break;
@@ -1283,8 +1273,6 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef * hspi)
 	case 0b01000000:  //Master SPI functions
 		switch (spi3_buf[0] & 0b00111000) {
 		case 0b00000000: //Start SPI write data
-			HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_0, 6400, 1000);
-			SPI_master2slave(&spi3_buf, &frame_buf_0);
 			break;
 		case 0b00001000: //Continuous write SPI data
 			break;
@@ -1311,60 +1299,81 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef * hspi)
 		case 0b00000000: //Write data to SPI flash
 			switch (spi3_buf[0] & 0b00000111) {
 			case 0b00000000: //Command for DIP switch ID = 00
+				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
 				if(BOARD_NUMBER==1)
 				{
-					HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-					erase_flash_sector(0);
-					write_flash_page(&frame_buf_tmp, 0);
+					erase_flash_sector(spi3_buf[1] - 1);
+					write_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
 				}
 				break;
 			case 0b00000001: //Command for DIP switch ID = 01
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
+				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
 				break;
 			case 0b00000010: //Command for DIP switch ID = 10
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
+				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
 				break;
 			case 0b00000011: //Command for DIP switch ID = 11
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
+				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
 				break;
 			default: //Broadcast to every board
 				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
-				erase_flash_sector(0);
-				write_flash_page(&frame_buf_tmp, 0);
+				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				erase_flash_sector(spi3_buf[1] - 1);
+				write_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
 				break;
 			}
 			break;
 		case 0b00001000: //Read data from SPI flash
+			/*delay_us(10000);
+			HAL_SPI_Transmit(&hspi3, "abcdef", 6, 1000);
+			HAL_UART_Transmit(&huart4, "a", 1, 1000);*/
+
 			switch (spi3_buf[0] & 0b00000111) {
 			case 0b00000000: //Command for DIP switch ID = 00
 				if(BOARD_NUMBER==1)
 				{
-					HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-					erase_flash_sector(1);
-					write_flash_page(&frame_buf_tmp, 1);
+					if(spi3_buf[1]==0x00)
+					{
+						for(int i=0; i<total_image_in_flash; i++)
+						{
+							reset_flash_software();
+							read_flash_page(&frame_buf_tmp, i);
+							HAL_SPI_Transmit(&hspi3, &frame_buf_tmp, 6400, 1000);
+						}
+					}
+					else
+					{
+						reset_flash_software();
+						read_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
+						HAL_SPI_Transmit(&hspi3, &frame_buf_tmp, 6400, 1000);
+					}
 				}
 				break;
 			case 0b00000001: //Command for DIP switch ID = 01
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
 				break;
 			case 0b00000010: //Command for DIP switch ID = 10
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
 				break;
 			case 0b00000011: //Command for DIP switch ID = 11
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
 				break;
 			default: //Broadcast to every board
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp);
-				erase_flash_sector(1);
-				write_flash_page(&frame_buf_tmp, 1);
+				if(spi3_buf[1]==0x00)
+				{
+					for(int i=0; i<total_image_in_flash; i++)
+					{
+						reset_flash_software();
+						read_flash_page(&frame_buf_tmp, i);
+						HAL_SPI_Transmit(&hspi3, &frame_buf_tmp, 6400, 1000);
+					}
+				}
+				else
+				{
+					reset_flash_software();
+					read_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
+					HAL_SPI_Transmit(&hspi3, &frame_buf_tmp, 6400, 1000);
+				}
 				break;
 			}
 			break;
