@@ -46,8 +46,6 @@ I2C_HandleTypeDef hi2c2;
 
 LTDC_HandleTypeDef hltdc;
 
-OSPI_HandleTypeDef hospi2;
-
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
 SPI_HandleTypeDef hspi3;
@@ -65,23 +63,19 @@ UART_HandleTypeDef huart4;
 #define FLASH_MOSI_PIN      GPIO_PIN_8
 #define FLASH_MOSI_PORT     GPIOF
 
-uint8_t BOARD_NUMBER = 1;
+uint8_t BOARD_NUMBER = 0;
 uint8_t spi3_buf[2] = {0};
-uint32_t frame_rate=1000; //delay time (ms)
-uint8_t frame_buf_tmp[6400]={0};
-uint8_t frame_buf_0[6400]={0};
-uint8_t frame_buf_1[6400]={0};
-uint8_t frame_buf_flash[6400]={0};
-uint8_t play_mode=0;  //0=Static display, 1=Dynamic display
-uint8_t play_mode_source=0;  //0=flash, 1=frame_buf_0, 2=frame_buf_1
-uint8_t static_flag=0;  //0=buffer_0, 1=buffer_1
-uint8_t display_image_number=0;
-uint8_t total_image_in_flash=10;
+uint32_t frame_rate = 1000; //delay time (ms)
+uint8_t frame_buf_tmp[6400] = {0};
+uint8_t frame_buf_0[6400] = {0};
+uint8_t frame_buf_1[6400] = {0};
+uint8_t frame_buf_flash[6400] = {0};
+uint8_t play_mode = 0;		  //0=Static display, 1=Dynamic display
+uint8_t play_mode_source = 0; //0=flash, 1=frame_buf_0, 2=frame_buf_1
+uint8_t static_flag = 0;	  //0=buffer_0, 1=buffer_1
+uint8_t display_image_number = 0;
+uint8_t total_image_in_flash = 10;
 uint8_t image_80x80_rgb888[19200] = {[0 ... 19199] = 0xFF};
-
-
-#define BUFFER_SIZE  8192
-uint8_t aRxBuffer[BUFFER_SIZE] = { 0 };
 
 /* USER CODE END PV */
 
@@ -90,7 +84,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2C2_Init(void);
-static void MX_OCTOSPI2_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_UART4_Init(void);
@@ -99,7 +92,7 @@ static void MX_LTDC_Init(void);
 static void MX_SPI3_Init(void);
 /* USER CODE BEGIN PFP */
 static void mipi_config(void);
-static void SPI_master2slave(char * buf, char * frame_buf, uint8_t image_flag);
+static void SPI_master2slave(char *buf, char *frame_buf, uint8_t image_flag);
 static void Write_Registers_data(uint8_t do_flag);
 static void I2C_Control_Voltage(void);
 static void LCD_PowerOn(void);
@@ -148,7 +141,6 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_I2C2_Init();
-  MX_OCTOSPI2_Init();
   MX_SPI1_Init();
   MX_SPI2_Init();
   MX_UART4_Init();
@@ -157,97 +149,127 @@ int main(void)
   MX_SPI3_Init();
   /* USER CODE BEGIN 2 */
   mipi_config();
-  HAL_UART_Transmit(&huart4, "master start", 12, 1000);
+  HAL_UART_Transmit(&huart4, "start", 5, 1000);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   int frame_buf_count = 0;
 
-  	__HAL_SPI_ENABLE(&hspi1);
-	__HAL_SPI_ENABLE(&hspi3);
-	HAL_SPI_Receive_IT(&hspi3, &spi3_buf, 2);
+  // switch
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) == GPIO_PIN_SET && HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_4) == GPIO_PIN_SET) //switch = 00
+  {
+	  BOARD_NUMBER = 1;
+  }
+  else if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) == GPIO_PIN_SET && HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_4) == GPIO_PIN_RESET) //switch = 01
+  {
+	  BOARD_NUMBER = 2;
+  }
+  else if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) == GPIO_PIN_RESET && HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_4) == GPIO_PIN_SET) //switch = 10
+  {
+	  BOARD_NUMBER = 3;
+  }
+  else if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) == GPIO_PIN_RESET && HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_4) == GPIO_PIN_RESET) //switch = 11
+  {
+	  BOARD_NUMBER = 4;
+  }
 
-	while (1) {
+  init_ble();
+  __HAL_SPI_ENABLE(&hspi1);
+  __HAL_SPI_ENABLE(&hspi3);
+  HAL_SPI_Receive_IT(&hspi3, &spi3_buf, 2);
+
+  while (1)
+  {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		if(play_mode_source == 0)
-		{
-			if(play_mode == 0)
-			{
-				read_flash_page(&frame_buf_flash, display_image_number);
-				frame_buf_count = 0;
-				for (int i = 0; i < 6400;  i += 4)
-				{
-					image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+1];
-					frame_buf_count += 2;
-					image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i];
-					frame_buf_count += 4;
-					image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+2];
-					frame_buf_count += 4;
-					image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+3];
-					frame_buf_count += 2;
-				}
-			}
-			else if(play_mode == 1)
-			{
-				for(int i=0; i<total_image_in_flash; i++)
-				{
-					if(play_mode_source != 0) break;
-					read_flash_page(&frame_buf_flash, i);
-					frame_buf_count = 0;
-					for (int i = 0; i < 6400;  i += 4)
-					{
-						image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+1];
-						frame_buf_count += 2;
-						image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i];
-						frame_buf_count += 4;
-						image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+2];
-						frame_buf_count += 4;
-						image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i+3];
-						frame_buf_count += 2;
-					}
-					HAL_Delay(frame_rate);
-				}
-			}
-		}
-		else if(play_mode_source == 1)
-		{
-			frame_buf_count = 0;
-			for (int i = 0; i < 6400;  i += 4)
-			{
-				image_80x80_rgb888[frame_buf_count] = frame_buf_0[i+1];
-				frame_buf_count += 2;
-				image_80x80_rgb888[frame_buf_count] = frame_buf_0[i];
-				frame_buf_count += 4;
-				image_80x80_rgb888[frame_buf_count] = frame_buf_0[i+2];
-				frame_buf_count += 4;
-				image_80x80_rgb888[frame_buf_count] = frame_buf_0[i+3];
-				frame_buf_count += 2;
-			}
-		}
-		else if(play_mode_source == 2)
-		{
-			frame_buf_count = 0;
-			for (int i = 0; i < 6400;  i += 4)
-			{
-				image_80x80_rgb888[frame_buf_count] = frame_buf_1[i+1];
-				frame_buf_count += 2;
-				image_80x80_rgb888[frame_buf_count] = frame_buf_1[i];
-				frame_buf_count += 4;
-				image_80x80_rgb888[frame_buf_count] = frame_buf_1[i+2];
-				frame_buf_count += 4;
-				image_80x80_rgb888[frame_buf_count] = frame_buf_1[i+3];
-				frame_buf_count += 2;
-			}
-		}
-		HAL_Delay(10);
+	  if (play_mode_source == 0)
+	  {
+		  if (play_mode == 0)
+		  {
+			  read_flash_page(&frame_buf_flash, display_image_number);
+			  frame_buf_count = 0;
+			  for (int i = 0; i < 6400; i += 4)
+			  {
+				  image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i + 1];
+				  frame_buf_count += 2;
+				  image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i];
+				  frame_buf_count += 4;
+				  image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i + 2];
+				  frame_buf_count += 4;
+				  image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i + 3];
+				  frame_buf_count += 2;
+			  }
+		  }
+		  else if (play_mode == 1)
+		  {
+			  for (int i = 0; i < total_image_in_flash; i++)
+			  {
+				  if (play_mode_source != 0)
+					  break;
+				  read_flash_page(&frame_buf_flash, i);
+				  frame_buf_count = 0;
+				  for (int i = 0; i < 6400; i += 4)
+				  {
+					  image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i + 1];
+					  frame_buf_count += 2;
+					  image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i];
+					  frame_buf_count += 4;
+					  image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i + 2];
+					  frame_buf_count += 4;
+					  image_80x80_rgb888[frame_buf_count] = frame_buf_flash[i + 3];
+					  frame_buf_count += 2;
+				  }
+				  HAL_Delay(frame_rate);
+			  }
+		  }
+	  }
+	  else if (play_mode_source == 1)
+	  {
+		  frame_buf_count = 0;
+		  for (int i = 0; i < 6400; i += 4)
+		  {
+			  image_80x80_rgb888[frame_buf_count] = frame_buf_0[i + 1];
+			  frame_buf_count += 2;
+			  image_80x80_rgb888[frame_buf_count] = frame_buf_0[i];
+			  frame_buf_count += 4;
+			  image_80x80_rgb888[frame_buf_count] = frame_buf_0[i + 2];
+			  frame_buf_count += 4;
+			  image_80x80_rgb888[frame_buf_count] = frame_buf_0[i + 3];
+			  frame_buf_count += 2;
+		  }
+	  }
+	  else if (play_mode_source == 2)
+	  {
+		  frame_buf_count = 0;
+		  for (int i = 0; i < 6400; i += 4)
+		  {
+			  image_80x80_rgb888[frame_buf_count] = frame_buf_1[i + 1];
+			  frame_buf_count += 2;
+			  image_80x80_rgb888[frame_buf_count] = frame_buf_1[i];
+			  frame_buf_count += 4;
+			  image_80x80_rgb888[frame_buf_count] = frame_buf_1[i + 2];
+			  frame_buf_count += 4;
+			  image_80x80_rgb888[frame_buf_count] = frame_buf_1[i + 3];
+			  frame_buf_count += 2;
+		  }
+	  }
+	  HAL_Delay(10);
 
+	  /*uint8_t TXTX[20];
+	  sprintf(TXTX,"%c%c%c%c%s",0x10,0x01,0x0A,0x0E,"aaaaaaaaaaaaaa"); //TX
+	  Wrap(&TXTX, sizeof TXTX);
+	  HAL_Delay(10);
+	  */
+	  if(HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_11) == GPIO_PIN_SET)
+	  {
+		  ReadBLE();
+	  }
 
-		/*I2C_Control_Voltage();
+	  /*I2C_Control_Voltage();
 		while (1);*/
-	}
+  }
   /* USER CODE END 3 */
 }
 
@@ -561,54 +583,6 @@ static void MX_LTDC_Init(void)
 }
 
 /**
-  * @brief OCTOSPI2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_OCTOSPI2_Init(void)
-{
-
-  /* USER CODE BEGIN OCTOSPI2_Init 0 */
-
-  /* USER CODE END OCTOSPI2_Init 0 */
-
-  OSPIM_CfgTypeDef OSPIM_Cfg_Struct = {0};
-
-  /* USER CODE BEGIN OCTOSPI2_Init 1 */
-
-  /* USER CODE END OCTOSPI2_Init 1 */
-  /* OCTOSPI2 parameter configuration*/
-  hospi2.Instance = OCTOSPI2;
-  hospi2.Init.FifoThreshold = 1;
-  hospi2.Init.DualQuad = HAL_OSPI_DUALQUAD_DISABLE;
-  hospi2.Init.MemoryType = HAL_OSPI_MEMTYPE_MACRONIX;
-  hospi2.Init.DeviceSize = 32;
-  hospi2.Init.ChipSelectHighTime = 1;
-  hospi2.Init.FreeRunningClock = HAL_OSPI_FREERUNCLK_DISABLE;
-  hospi2.Init.ClockMode = HAL_OSPI_CLOCK_MODE_0;
-  hospi2.Init.ClockPrescaler = 32;
-  hospi2.Init.SampleShifting = HAL_OSPI_SAMPLE_SHIFTING_NONE;
-  hospi2.Init.DelayHoldQuarterCycle = HAL_OSPI_DHQC_DISABLE;
-  hospi2.Init.ChipSelectBoundary = 0;
-  hospi2.Init.DelayBlockBypass = HAL_OSPI_DELAY_BLOCK_BYPASSED;
-  if (HAL_OSPI_Init(&hospi2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  OSPIM_Cfg_Struct.ClkPort = 2;
-  OSPIM_Cfg_Struct.NCSPort = 2;
-  OSPIM_Cfg_Struct.IOLowPort = HAL_OSPIM_IOPORT_2_LOW;
-  if (HAL_OSPIM_Config(&hospi2, &OSPIM_Cfg_Struct, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN OCTOSPI2_Init 2 */
-
-  /* USER CODE END OCTOSPI2_Init 2 */
-
-}
-
-/**
   * @brief SPI1 Initialization Function
   * @param None
   * @retval None
@@ -631,7 +605,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_HARD_OUTPUT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -797,10 +771,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOE_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(ble_ncs_GPIO_Port, ble_ncs_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(flash_cs_GPIO_Port, flash_cs_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOF, flash_mosi_Pin|flash_clk_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOF, ble_mosi_Pin|flash_mosi_Pin|ble_clk_Pin|flash_clk_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|GPIO_PIN_7, GPIO_PIN_RESET);
@@ -814,6 +791,13 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_14, GPIO_PIN_SET);
 
+  /*Configure GPIO pin : ble_ncs_Pin */
+  GPIO_InitStruct.Pin = ble_ncs_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(ble_ncs_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pin : flash_cs_Pin */
   GPIO_InitStruct.Pin = flash_cs_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -821,24 +805,24 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(flash_cs_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : flash_mosi_Pin flash_clk_Pin */
-  GPIO_InitStruct.Pin = flash_mosi_Pin|flash_clk_Pin;
+  /*Configure GPIO pins : ble_mosi_Pin flash_mosi_Pin ble_clk_Pin flash_clk_Pin */
+  GPIO_InitStruct.Pin = ble_mosi_Pin|flash_mosi_Pin|ble_clk_Pin|flash_clk_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : flash_miso_Pin */
-  GPIO_InitStruct.Pin = flash_miso_Pin;
+  /*Configure GPIO pins : ble_miso_Pin flash_miso_Pin */
+  GPIO_InitStruct.Pin = ble_miso_Pin|flash_miso_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(flash_miso_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PD11 */
-  GPIO_InitStruct.Pin = GPIO_PIN_11;
+  /*Configure GPIO pin : ble_irq_Pin */
+  GPIO_InitStruct.Pin = ble_irq_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+  HAL_GPIO_Init(ble_irq_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA4 PA3 */
   GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_3;
@@ -901,65 +885,62 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void mipi_config() {
-	if (HAL_DSI_Start(&hdsi) != HAL_OK) {
+void mipi_config()
+{
+	if (HAL_DSI_Start(&hdsi) != HAL_OK)
+	{
 		Error_Handler();
 	}
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0xF0, 0xC3);
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0xF0, 0x96);
-	uint8_t cmd3[7] = { 0x00, 0x77, 0x1F, 0x04, 0x2A, 0x80, 0x33 };
+	uint8_t cmd3[7] = {0x00, 0x77, 0x1F, 0x04, 0x2A, 0x80, 0x33};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 8, 0xE7, cmd3);
-	uint8_t cmd4[3] = { 0xC0, 0x68, 0xE0 };
+	uint8_t cmd4[3] = {0xC0, 0x68, 0xE0};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 4, 0xA4, cmd4);
-	uint8_t cmd5[4] = { 0x42, 0x05, 0x24, 0x03 };
+	uint8_t cmd5[4] = {0x42, 0x05, 0x24, 0x03};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 5, 0xC3, cmd5);
-	uint8_t cmd6[4] = { 0x42, 0x05, 0x24, 0x03 };
+	uint8_t cmd6[4] = {0x42, 0x05, 0x24, 0x03};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 5, 0xC4, cmd6);
-	uint8_t cmd7[12] = { 0x0F, 0xF5, 0x10, 0x13, 0x22, 0x25, 0x10, 0x55, 0x55,
-			0x55, 0x55, 0x55 };
+	uint8_t cmd7[12] = {0x0F, 0xF5, 0x10, 0x13, 0x22, 0x25, 0x10, 0x55, 0x55, 0x55, 0x55, 0x55};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 13, 0xE5, cmd7);
-	uint8_t cmd8[12] = { 0x0F, 0xF5, 0x10, 0x13, 0x22, 0x25, 0x10, 0x55, 0x55,
-			0x55, 0x55, 0x55 };
+	uint8_t cmd8[12] = {0x0F, 0xF5, 0x10, 0x13, 0x22, 0x25, 0x10, 0x55, 0x55, 0x55, 0x55, 0x55};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 13, 0xE6, cmd8);
-	uint8_t cmd9[7] = { 0x00, 0x55, 0x00, 0x00, 0x00, 0x49, 0x22 };
+	uint8_t cmd9[7] = {0x00, 0x55, 0x00, 0x00, 0x00, 0x49, 0x22};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 8, 0xEC, cmd9);
-	uint8_t cmd10[4] = { 0x88, 0x05, 0x0F, 0x18 };
+	uint8_t cmd10[4] = {0x88, 0x05, 0x0F, 0x18};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 5, 0xC1, cmd10);
-	uint8_t cmd11[4] = { 0x88, 0x05, 0x0F, 0x18 };
+	uint8_t cmd11[4] = {0x88, 0x05, 0x0F, 0x18};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 5, 0xC2, cmd11);
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0x36, 0x00);
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0x3A, 0x07);
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0xC5, 0xBE);
-	uint8_t cmd15[14] = { 0xC0, 0x01, 0x04, 0x0B, 0x0B, 0x29, 0x41, 0x55, 0x55,
-			0x3D, 0x19, 0x18, 0x24, 0x27 };
+	uint8_t cmd15[14] = {0xC0, 0x01, 0x04, 0x0B, 0x0B, 0x29, 0x41, 0x55, 0x55, 0x3D, 0x19, 0x18, 0x24, 0x27};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 15, 0xE0, cmd15);
-	uint8_t cmd16[14] = { 0xC0, 0x01, 0x05, 0x0B, 0x0C, 0x29, 0x42, 0x55, 0x56,
-			0x3E, 0x1A, 0x18, 0x24, 0x28 };
+	uint8_t cmd16[14] = {0xC0, 0x01, 0x05, 0x0B, 0x0C, 0x29, 0x42, 0x55, 0x56, 0x3E, 0x1A, 0x18, 0x24, 0x28};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 15, 0xE1, cmd16);
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0xB2, 0x10);
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0xB3, 0x01);
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0xB4, 0x01);
-	uint8_t cmd20[2] = { 0x27, 0x09 };
+	uint8_t cmd20[2] = {0x27, 0x09};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 3, 0xB6, cmd20);
-	uint8_t cmd21[4] = { 0x00, 0x54, 0x00, 0x54 };
+	uint8_t cmd21[4] = {0x00, 0x54, 0x00, 0x54};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 5, 0xB5, cmd21);
-	uint8_t cmd22[9] = { 0x20, 0x12, 0x40, 0x00, 0x00, 0x2F, 0x2A, 0x0A, 0x00 };
+	uint8_t cmd22[9] = {0x20, 0x12, 0x40, 0x00, 0x00, 0x2F, 0x2A, 0x0A, 0x00};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 10, 0xA5, cmd22);
-	uint8_t cmd23[9] = { 0x20, 0x12, 0x40, 0x00, 0x00, 0x2F, 0x2A, 0x0A, 0x00 };
+	uint8_t cmd23[9] = {0x20, 0x12, 0x40, 0x00, 0x00, 0x2F, 0x2A, 0x0A, 0x00};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 10, 0xA6, cmd23);
-	uint8_t cmd24[7] = { 0x58, 0x0A, 0x21, 0x00, 0x20, 0x01, 0x00 };
+	uint8_t cmd24[7] = {0x58, 0x0A, 0x21, 0x00, 0x20, 0x01, 0x00};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 8, 0xBA, cmd24);
-	uint8_t cmd25[8] = { 0x00, 0x45, 0x00, 0x1F, 0x15, 0x87, 0x07, 0x04 };
+	uint8_t cmd25[8] = {0x00, 0x45, 0x00, 0x1F, 0x15, 0x87, 0x07, 0x04};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 9, 0xBB, cmd25);
-	uint8_t cmd26[8] = { 0x00, 0x45, 0x00, 0x1F, 0x15, 0x87, 0x07, 0x04 };
+	uint8_t cmd26[8] = {0x00, 0x45, 0x00, 0x1F, 0x15, 0x87, 0x07, 0x04};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 9, 0xBC, cmd26);
-	uint8_t cmd27[11] = { 0x11, 0x77, 0xFF, 0xFF, 0x25, 0x34, 0x43, 0x52, 0xFF,
-			0xFF, 0xF9 };
+	uint8_t cmd27[11] = {0x11, 0x77, 0xFF, 0xFF, 0x25, 0x34, 0x43, 0x52, 0xFF, 0xFF, 0xF9};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 12, 0xBD, cmd27);
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0xED, 0xC3);
-	uint8_t cmd29[3] = { 0x40, 0x0F, 0x00 };
+	uint8_t cmd29[3] = {0x40, 0x0F, 0x00};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 4, 0xE4, cmd29);
-	uint8_t cmd30[9] = { 0x90, 0x00, 0x3F, 0x10, 0x3F, 0x35, 0x7F, 0x7F, 0x25 };
+	uint8_t cmd30[9] = {0x90, 0x00, 0x3F, 0x10, 0x3F, 0x35, 0x7F, 0x7F, 0x25};
 	HAL_DSI_LongWrite(&hdsi, 0, DSI_DCS_LONG_PKT_WRITE, 10, 0xCC, cmd30);
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0x35, 0x00);
 	HAL_Delay(0);
@@ -970,29 +951,32 @@ void mipi_config() {
 	HAL_DSI_ShortWrite(&hdsi, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0x35, 0x00);
 }
 
-void SPI_master2slave(char * buf, char * frame_buf, uint8_t image_flag) {
+void SPI_master2slave(char *buf, char *frame_buf, uint8_t image_flag)
+{
 	HAL_SPI_Transmit(&hspi1, &buf[0], 1, 1000);
 	HAL_SPI_Transmit(&hspi1, &buf[1], 1, 1000);
-	if(image_flag == 1)
+	if (image_flag == 1)
 	{
-		for(int i=0; i< 6400; i++)
+		for (int i = 0; i < 6400; i++)
 		{
 			HAL_SPI_Transmit(&hspi1, &frame_buf[i], 1, 1000);
 		}
 	}
 }
 
-void Write_Registers_data(uint8_t do_flag) {
-	uint8_t Register_Address[1] = { 0 };
-	uint8_t data[1] = { 0 };
+void Write_Registers_data(uint8_t do_flag)
+{
+	uint8_t Register_Address[1] = {0};
+	uint8_t data[1] = {0};
 
-	HAL_SPI_Receive(&hspi3, (uint8_t*) Register_Address, 1, 1000);
-	HAL_SPI_Receive(&hspi3, (uint8_t*) data, 1, 1000);
+	HAL_SPI_Receive(&hspi3, (uint8_t *)Register_Address, 1, 1000);
+	HAL_SPI_Receive(&hspi3, (uint8_t *)data, 1, 1000);
 	HAL_SPI_Transmit(&hspi1, &Register_Address[0], 1, 1000);
 	HAL_SPI_Transmit(&hspi1, &data[0], 1, 1000);
-	if(do_flag == 1)
+	if (do_flag == 1)
 	{
-		switch (Register_Address[0]) {
+		switch (Register_Address[0])
+		{
 		case 0: //Horizontal Resolution
 			break;
 		case 1: //Vertical Resolution
@@ -1006,9 +990,10 @@ void Write_Registers_data(uint8_t do_flag) {
 		case 5: //Vertical blanking (Low byte)
 			break;
 		case 6: //Frame rate x 2 (Hz)
-			frame_rate=(uint32_t)data[0]*1000;
+			frame_rate = (uint32_t)data[0] * 1000;
 			break;
 		case 7: //Show SPI flash content length
+			total_image_in_flash=(uint32_t)data[0];
 			break;
 		case 8: //Content number of each frame
 			break;
@@ -1027,16 +1012,17 @@ void Write_Registers_data(uint8_t do_flag) {
 		case 15: //Month of Version
 			break;
 		case 16: //Control A
-			switch (data[0] & 0b00000011) {
-			case 0b00000000:  //Display content of frame buffer (0)
+			switch (data[0] & 0b00000011)
+			{
+			case 0b00000000: //Display content of frame buffer (0)
 				play_mode_source = 1;
 				break;
-			case 0b00000001:  //Display content of frame buffer (1)
+			case 0b00000001: //Display content of frame buffer (1)
 				play_mode_source = 2;
 				break;
-			case 0b00000010:  //Display SPI input content
+			case 0b00000010: //Display SPI input content
 				break;
-			case 0b00000011:  //Display Flash content
+			case 0b00000011: //Display Flash content
 				play_mode_source = 0;
 				break;
 			}
@@ -1045,36 +1031,42 @@ void Write_Registers_data(uint8_t do_flag) {
 			break;
 		}
 	}
+	//HAL_UART_Transmit(&huart4, &Register_Address, 1, 1000);
+	//HAL_UART_Transmit(&huart4, &data, 1, 1000);
 }
 
+uint8_t aRxBuffer[1024] = {0};
 static void I2C_Control_Voltage()
 {
-	uint8_t data[1] = { 0 };
+	uint8_t data[1] = {0};
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);
 	HAL_Delay(100);
 	HAL_UART_Transmit(&huart4, "a", 1, 1000);
 
 	data[0] = 0x40;
-	if(HAL_I2C_Mem_Write(&hi2c1, (0x74 & 0x7f) << 1, 0x00, I2C_MEMADD_SIZE_8BIT, &data, 1, 1000) == HAL_OK) {
+	if (HAL_I2C_Mem_Write(&hi2c1, (0x74 & 0x7f) << 1, 0x00, I2C_MEMADD_SIZE_8BIT, &data, 1, 1000) == HAL_OK)
+	{
 		data[0] = 0x00;
-		if(HAL_I2C_Mem_Write(&hi2c1, (0x74 & 0x7f) << 1, 0x01, I2C_MEMADD_SIZE_8BIT, &data, 1, 1000) == HAL_OK) {
+		if (HAL_I2C_Mem_Write(&hi2c1, (0x74 & 0x7f) << 1, 0x01, I2C_MEMADD_SIZE_8BIT, &data, 1, 1000) == HAL_OK)
+		{
 			data[0] = 0xA0;
-			if(HAL_I2C_Mem_Write(&hi2c1, (0x74 & 0x7f) << 1, 0x06, I2C_MEMADD_SIZE_8BIT, &data, 1, 1000) == HAL_OK) {
+			if (HAL_I2C_Mem_Write(&hi2c1, (0x74 & 0x7f) << 1, 0x06, I2C_MEMADD_SIZE_8BIT, &data, 1, 1000) == HAL_OK)
+			{
 			}
 		}
 	}
 	HAL_Delay(200);
-	if(HAL_I2C_Mem_Read(&hi2c1, (0x74 & 0x7f) << 1, 0x00, I2C_MEMADD_SIZE_8BIT, &aRxBuffer, 1, 1000) == HAL_OK)
+	if (HAL_I2C_Mem_Read(&hi2c1, (0x74 & 0x7f) << 1, 0x00, I2C_MEMADD_SIZE_8BIT, &aRxBuffer, 1, 1000) == HAL_OK)
 	{
 		HAL_UART_Transmit(&huart4, &aRxBuffer, 1, 1000);
 	}
 	HAL_Delay(200);
-	if(HAL_I2C_Mem_Read(&hi2c1, (0x74 & 0x7f) << 1, 0x06, I2C_MEMADD_SIZE_8BIT, &aRxBuffer, 1, 1000) == HAL_OK)
+	if (HAL_I2C_Mem_Read(&hi2c1, (0x74 & 0x7f) << 1, 0x06, I2C_MEMADD_SIZE_8BIT, &aRxBuffer, 1, 1000) == HAL_OK)
 	{
 		HAL_UART_Transmit(&huart4, &aRxBuffer, 1, 1000);
 	}
 	HAL_Delay(200);
-	if(HAL_I2C_Mem_Read(&hi2c1, (0x74 & 0x7f) << 1, 0x07, I2C_MEMADD_SIZE_8BIT, &aRxBuffer, 1, 1000) == HAL_OK)
+	if (HAL_I2C_Mem_Read(&hi2c1, (0x74 & 0x7f) << 1, 0x07, I2C_MEMADD_SIZE_8BIT, &aRxBuffer, 1, 1000) == HAL_OK)
 	{
 		HAL_UART_Transmit(&huart4, &aRxBuffer, 1, 1000);
 	}
@@ -1120,8 +1112,7 @@ void delay_us(int time)
 	while (time--)
 	{
 		i = 13;
-		while (i--)
-			;
+		while (i--);
 	}
 }
 
@@ -1131,26 +1122,25 @@ void delay_100ns(int time)
 	while (time--)
 	{
 		i = 1;
-		while (i--)
-			;
+		while (i--);
 	}
 }
 
-int button_count=0;
+int button_count = 0;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	if(GPIO_Pin==GPIO_PIN_12)
+	if (GPIO_Pin == GPIO_PIN_12)
 	{
 		button_count++;
 		delay_us(50000);
-		for(int i=0; i<200; i++)
+		for (int i = 0; i < 200; i++)
 		{
-			if(HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_12) == GPIO_PIN_RESET)
+			if (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_12) == GPIO_PIN_RESET)
 			{
-				if(button_count<50 && play_mode==0)
+				if (button_count < 80 && button_count > 5 && play_mode == 0)
 				{
 					display_image_number++;
-					if(display_image_number >= total_image_in_flash)
+					if (display_image_number >= total_image_in_flash)
 						display_image_number = 0;
 				}
 				button_count = 0;
@@ -1159,12 +1149,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			button_count++;
 			delay_us(10000);
 		}
-		if(play_mode==1)
+		if (play_mode == 1)
 		{
 			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);
 			play_mode = 0;
 		}
-		else if(play_mode==0)
+		else if (play_mode == 0)
 		{
 			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET);
 			play_mode = 1;
@@ -1173,69 +1163,121 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	}
 }
 
-void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef * hspi)
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
+	//HAL_UART_Transmit(&huart4, &spi3_buf, 2, 1000);
 	// USB command: Type and command
-	switch (spi3_buf[0] & 0b11000000) {
-	case 0b00000000:  //Chain SPI functions
-		switch (spi3_buf[0] & 0b00111000) {
+	switch (spi3_buf[0] & 0b11000000)
+	{
+	case 0b00000000: //Chain SPI functions
+		switch (spi3_buf[0] & 0b00111000)
+		{
 		case 0b00000000: //Write content of full frame buffer to fram buffer (0)
-			switch (spi3_buf[0] & 0b00000111) {
+			switch (spi3_buf[0] & 0b00000111)
+			{
 			case 0b00000000: //Command for DIP switch ID = 00
-				if(BOARD_NUMBER==1)
+				if (BOARD_NUMBER == 1)
 				{
-					HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_0, 6400, 1000);
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_0, 6400, 1000);
 				}
 				break;
 			case 0b00000001: //Command for DIP switch ID = 01
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				if (BOARD_NUMBER == 2)
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_0, 6400, 1000);
+				}
+				else
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
+					SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				}
 				break;
 			case 0b00000010: //Command for DIP switch ID = 10
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				if (BOARD_NUMBER == 3)
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_0, 6400, 1000);
+				}
+				else
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
+					SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				}
 				break;
 			case 0b00000011: //Command for DIP switch ID = 11
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				if (BOARD_NUMBER == 4)
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_0, 6400, 1000);
+				}
+				else
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
+					SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				}
 				break;
-			default: //Broadcast to every board
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_0, 6400, 1000);
+			case 0b00000100: //Broadcast to every board
+				HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_0, 6400, 1000);
 				SPI_master2slave(&spi3_buf, &frame_buf_0, 1);
+				break;
+			default:
 				break;
 			}
 			break;
 		case 0b00001000: //Write content of full frame buffer to fram buffer (1)
-			switch (spi3_buf[0] & 0b00000111) {
+			switch (spi3_buf[0] & 0b00000111)
+			{
 			case 0b00000000: //Command for DIP switch ID = 00
-				if(BOARD_NUMBER==1)
+				if (BOARD_NUMBER == 1)
 				{
-					HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_1, 6400, 1000);
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_1, 6400, 1000);
 				}
 				break;
 			case 0b00000001: //Command for DIP switch ID = 01
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				if (BOARD_NUMBER == 2)
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_1, 6400, 1000);
+				}
+				else
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
+					SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				}
 				break;
 			case 0b00000010: //Command for DIP switch ID = 10
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				if (BOARD_NUMBER == 3)
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_1, 6400, 1000);
+				}
+				else
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
+					SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				}
 				break;
 			case 0b00000011: //Command for DIP switch ID = 11
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				if (BOARD_NUMBER == 4)
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_1, 6400, 1000);
+				}
+				else
+				{
+					HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
+					SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				}
 				break;
-			default: //Broadcast to every board
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_1, 6400, 1000);
+			case 0b00000100: //Broadcast to every board
+				HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_1, 6400, 1000);
 				SPI_master2slave(&spi3_buf, &frame_buf_1, 1);
+				break;
+			default:
 				break;
 			}
 			break;
 		case 0b00010000: //Write Registers data
 			SPI_master2slave(&spi3_buf, NULL, 0);
-			switch (spi3_buf[0] & 0b00000111) {
+			switch (spi3_buf[0] & 0b00000111)
+			{
 			case 0b00000000: //Command for DIP switch ID = 00
-				if(BOARD_NUMBER==1)
+				if (BOARD_NUMBER == 1)
 				{
 					Write_Registers_data(1);
 				}
@@ -1245,16 +1287,39 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef * hspi)
 				}
 				break;
 			case 0b00000001: //Command for DIP switch ID = 01
-				Write_Registers_data(0);
+				if (BOARD_NUMBER == 2)
+				{
+					Write_Registers_data(1);
+				}
+				else
+				{
+					Write_Registers_data(0);
+				}
 				break;
 			case 0b00000010: //Command for DIP switch ID = 10
-				Write_Registers_data(0);
+				if (BOARD_NUMBER == 3)
+				{
+					Write_Registers_data(1);
+				}
+				else
+				{
+					Write_Registers_data(0);
+				}
 				break;
 			case 0b00000011: //Command for DIP switch ID = 11
-				Write_Registers_data(0);
+				if (BOARD_NUMBER == 4)
+				{
+					Write_Registers_data(1);
+				}
+				else
+				{
+					Write_Registers_data(0);
+				}
 				break;
-			default: //Broadcast to every board
+			case 0b00000100: //Broadcast to every board
 				Write_Registers_data(1);
+				break;
+			default:
 				break;
 			}
 			break;
@@ -1270,8 +1335,9 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef * hspi)
 			break;
 		}
 		break;
-	case 0b01000000:  //Master SPI functions
-		switch (spi3_buf[0] & 0b00111000) {
+	case 0b01000000: //Master SPI functions
+		switch (spi3_buf[0] & 0b00111000)
+		{
 		case 0b00000000: //Start SPI write data
 			break;
 		case 0b00001000: //Continuous write SPI data
@@ -1286,94 +1352,102 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef * hspi)
 			break;
 		}
 		break;
-	case 0b10000000:  //I2C command
-		switch (spi3_buf[0] & 0b00111000) {
+	case 0b10000000: //I2C command
+		switch (spi3_buf[0] & 0b00111000)
+		{
 		case 0b00000000: //I2C Write Data
 			break;
 		case 0b00100000: //I2C Read Data
 			break;
 		}
 		break;
-	case 0b11000000:  //SPI flash function & Slave SPI
-		switch (spi3_buf[0] & 0b00111000) {
+	case 0b11000000: //SPI flash function & Slave SPI
+		switch (spi3_buf[0] & 0b00111000)
+		{
 		case 0b00000000: //Write data to SPI flash
-			switch (spi3_buf[0] & 0b00000111) {
+			switch (spi3_buf[0] & 0b00000111)
+			{
 			case 0b00000000: //Command for DIP switch ID = 00
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				if(BOARD_NUMBER==1)
+				HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
+				if (BOARD_NUMBER == 1)
 				{
 					erase_flash_sector(spi3_buf[1] - 1);
 					write_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
 				}
+				else
+				{
+					SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				}
 				break;
 			case 0b00000001: //Command for DIP switch ID = 01
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
+				if (BOARD_NUMBER == 2)
+				{
+					erase_flash_sector(spi3_buf[1] - 1);
+					write_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
+				}
+				else
+				{
+					SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				}
 				break;
 			case 0b00000010: //Command for DIP switch ID = 10
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
+				if (BOARD_NUMBER = 3)
+				{
+					erase_flash_sector(spi3_buf[1] - 1);
+					write_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
+				}
+				else
+				{
+					SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				}
 				break;
 			case 0b00000011: //Command for DIP switch ID = 11
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
-				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
+				if (BOARD_NUMBER == 4)
+				{
+					erase_flash_sector(spi3_buf[1] - 1);
+					write_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
+				}
+				else
+				{
+					SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
+				}
 				break;
-			default: //Broadcast to every board
-				HAL_SPI_Receive(&hspi3, (uint8_t*) frame_buf_tmp, 6400, 1000);
+			case 0b00000100: //Broadcast to every board
+				HAL_SPI_Receive(&hspi3, (uint8_t *)frame_buf_tmp, 6400, 1000);
 				SPI_master2slave(&spi3_buf, &frame_buf_tmp, 1);
 				erase_flash_sector(spi3_buf[1] - 1);
 				write_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
 				break;
+			default:
+				break;
 			}
 			break;
 		case 0b00001000: //Read data from SPI flash
-			/*delay_us(10000);
-			HAL_SPI_Transmit(&hspi3, "abcdef", 6, 1000);
-			HAL_UART_Transmit(&huart4, "a", 1, 1000);*/
-
-			switch (spi3_buf[0] & 0b00000111) {
+			switch (spi3_buf[0] & 0b00000111)
+			{
 			case 0b00000000: //Command for DIP switch ID = 00
-				if(BOARD_NUMBER==1)
-				{
-					if(spi3_buf[1]==0x00)
-					{
-						for(int i=0; i<total_image_in_flash; i++)
-						{
-							reset_flash_software();
-							read_flash_page(&frame_buf_tmp, i);
-							HAL_SPI_Transmit(&hspi3, &frame_buf_tmp, 6400, 1000);
-						}
-					}
-					else
-					{
-						reset_flash_software();
-						read_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
-						HAL_SPI_Transmit(&hspi3, &frame_buf_tmp, 6400, 1000);
-					}
-				}
-				break;
-			case 0b00000001: //Command for DIP switch ID = 01
-				break;
-			case 0b00000010: //Command for DIP switch ID = 10
-				break;
-			case 0b00000011: //Command for DIP switch ID = 11
-				break;
-			default: //Broadcast to every board
-				if(spi3_buf[1]==0x00)
-				{
-					for(int i=0; i<total_image_in_flash; i++)
-					{
-						reset_flash_software();
-						read_flash_page(&frame_buf_tmp, i);
-						HAL_SPI_Transmit(&hspi3, &frame_buf_tmp, 6400, 1000);
-					}
-				}
-				else
+				if (BOARD_NUMBER == 1)
 				{
 					reset_flash_software();
 					read_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
 					HAL_SPI_Transmit(&hspi3, &frame_buf_tmp, 6400, 1000);
 				}
+				break;
+			case 0b00000001: //Command for DIP switch ID = 01
+				break;
+			case 0b00000010: //Command for DIP switch ID = 10
+				break;
+			case 0b00000011: //Command for DIP switch ID = 11
+				break;
+			case 0b00000100: //Broadcast to every board
+				reset_flash_software();
+				read_flash_page(&frame_buf_tmp, spi3_buf[1] - 1);
+				HAL_SPI_Transmit(&hspi3, &frame_buf_tmp, 6400, 1000);
+				break;
+			default:
 				break;
 			}
 			break;
@@ -1383,53 +1457,59 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef * hspi)
 		break;
 	}
 	// USB command: ID
-	switch (spi3_buf[0] & 0b00000111) {
-	case 0b00000000:  //Command for DIP switch ID = 00
+	switch (spi3_buf[0] & 0b00000111)
+	{
+	case 0b00000000: //Command for DIP switch ID = 00
 		break;
-	case 0b00000001:  //Command for DIP switch ID = 01
+	case 0b00000001: //Command for DIP switch ID = 01
 		break;
-	case 0b00000010:  //Command for DIP switch ID = 10
+	case 0b00000010: //Command for DIP switch ID = 10
 		break;
-	case 0b00000011:  //Command for DIP switch ID = 11
+	case 0b00000011: //Command for DIP switch ID = 11
 		break;
-	default:  //Broadcast to every board
+	default: //Broadcast to every board
 		break;
 	}
 
 	HAL_SPI_Receive_IT(&hspi3, &spi3_buf, 2);
 }
 
-void FLASH_WriteByte(uint8_t data) {
-    for (int i = 7; i >= 0; i--) {
-        HAL_GPIO_WritePin(FLASH_MOSI_PORT, FLASH_MOSI_PIN, (data >> i) & 1);
+///////////////////////flash/////////////////////////
+void FLASH_WriteByte(uint8_t data)
+{
+	for (int i = 7; i >= 0; i--)
+	{
+		HAL_GPIO_WritePin(FLASH_MOSI_PORT, FLASH_MOSI_PIN, (data >> i) & 1);
 
-        HAL_GPIO_WritePin(FLASH_CLK_PORT, FLASH_CLK_PIN, GPIO_PIN_SET);
-        delay_100ns(1);
-        HAL_GPIO_WritePin(FLASH_CLK_PORT, FLASH_CLK_PIN, GPIO_PIN_RESET);
-        delay_100ns(1);
-    }
+		HAL_GPIO_WritePin(FLASH_CLK_PORT, FLASH_CLK_PIN, GPIO_PIN_SET);
+		delay_100ns(1);
+		HAL_GPIO_WritePin(FLASH_CLK_PORT, FLASH_CLK_PIN, GPIO_PIN_RESET);
+		delay_100ns(1);
+	}
 }
 
-uint8_t FLASH_ReadByte(void) {
-    uint8_t data = 0;
+uint8_t FLASH_ReadByte(void)
+{
+	uint8_t data = 0;
 
-    for (int i = 7; i >= 0; i--) {
-        HAL_GPIO_WritePin(FLASH_CLK_PORT, FLASH_CLK_PIN, GPIO_PIN_SET);
-        delay_100ns(1);
-        data |= (HAL_GPIO_ReadPin(FLASH_MISO_PORT, FLASH_MISO_PIN) << i);
-        HAL_GPIO_WritePin(FLASH_CLK_PORT,FLASH_CLK_PIN, GPIO_PIN_RESET);
-        delay_100ns(1);
-    }
+	for (int i = 7; i >= 0; i--)
+	{
+		HAL_GPIO_WritePin(FLASH_CLK_PORT, FLASH_CLK_PIN, GPIO_PIN_SET);
+		delay_100ns(1);
+		data |= (HAL_GPIO_ReadPin(FLASH_MISO_PORT, FLASH_MISO_PIN) << i);
+		HAL_GPIO_WritePin(FLASH_CLK_PORT, FLASH_CLK_PIN, GPIO_PIN_RESET);
+		delay_100ns(1);
+	}
 
-    return data;
+	return data;
 }
 
 void write_flash_page(uint8_t *data, uint8_t image_id)
 {
-	int image_id_H = image_id/8;
-	int image_id_L = image_id%8;
-	int count=0;
-	for(uint32_t i=image_id_L*0x20; i<image_id_L*0x20+25; i++)
+	int image_id_H = image_id / 8;
+	int image_id_L = image_id % 8;
+	int count = 0;
+	for (uint32_t i = image_id_L * 0x20; i < image_id_L * 0x20 + 25; i++)
 	{
 		// enable write
 		HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_RESET);
@@ -1442,9 +1522,9 @@ void write_flash_page(uint8_t *data, uint8_t image_id)
 		FLASH_WriteByte(image_id_H);
 		FLASH_WriteByte(i);
 		FLASH_WriteByte(0x00);
-		for(uint32_t j=0; j<256; j++)
+		for (uint32_t j = 0; j < 256; j++)
 		{
-			FLASH_WriteByte(data[count*256+j]);
+			FLASH_WriteByte(data[count * 256 + j]);
 		}
 		HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_SET);
 
@@ -1459,19 +1539,19 @@ void write_flash_page(uint8_t *data, uint8_t image_id)
 
 void read_flash_page(uint8_t *data, uint8_t image_id)
 {
-	int image_id_H = image_id/8;
-	int image_id_L = image_id%8;
-	int count=0;
-	for(uint32_t i=image_id_L*0x20; i<image_id_L*0x20+25; i++)
+	int image_id_H = image_id / 8;
+	int image_id_L = image_id % 8;
+	int count = 0;
+	for (uint32_t i = image_id_L * 0x20; i < image_id_L * 0x20 + 25; i++)
 	{
 		HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_RESET);
 		FLASH_WriteByte(0x03);
 		FLASH_WriteByte(image_id_H);
 		FLASH_WriteByte(i);
 		FLASH_WriteByte(0x00);
-		for(uint32_t j=0; j<256; j++)
+		for (uint32_t j = 0; j < 256; j++)
 		{
-			data[count*256+j] = FLASH_ReadByte();
+			data[count * 256 + j] = FLASH_ReadByte();
 		}
 		HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_SET);
 		count++;
@@ -1480,8 +1560,8 @@ void read_flash_page(uint8_t *data, uint8_t image_id)
 
 void erase_flash_sector(uint8_t image_id)
 {
-	int image_id_H = image_id/8;
-	int image_id_L = image_id%8;
+	int image_id_H = image_id / 8;
+	int image_id_L = image_id % 8;
 	reset_flash_software();
 
 	HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_RESET);
@@ -1491,7 +1571,7 @@ void erase_flash_sector(uint8_t image_id)
 	HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_RESET);
 	FLASH_WriteByte(0x20);
 	FLASH_WriteByte(image_id_H);
-	FLASH_WriteByte(image_id_L*0x20);
+	FLASH_WriteByte(image_id_L * 0x20);
 	FLASH_WriteByte(0x00);
 	HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_SET);
 
@@ -1508,7 +1588,7 @@ void erase_flash_sector(uint8_t image_id)
 	HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_RESET);
 	FLASH_WriteByte(0x20);
 	FLASH_WriteByte(image_id_H);
-	FLASH_WriteByte(image_id_L*0x20+0x10);
+	FLASH_WriteByte(image_id_L * 0x20 + 0x10);
 	FLASH_WriteByte(0x00);
 	HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_SET);
 
@@ -1532,6 +1612,198 @@ void reset_flash_software()
 
 	delay_us(1000);
 }
+///////////////////////flash/////////////////////////
+
+///////////////////////ble/////////////////////////
+void init_ble()
+{
+	uint8_t BAUD_1[20], BAUD_2[20], NAME_1[20], NAME_2[20];
+
+	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_14, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_14, GPIO_PIN_RESET);
+	HAL_Delay(10);
+	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_14, GPIO_PIN_SET);
+	HAL_Delay(3000);
+
+	sprintf(BAUD_1,"%c%c%c%c%s",0x10,0x00,0x0A,0x8C,"AT+BAUDRATE="); //Bit 7 of payload size is also set
+	sprintf(BAUD_2,"%c%c%c%c%s",0x10,0x00,0x0A,0x06,"115200");
+	sprintf(NAME_1,"%c%c%c%c%s",0x10,0x00,0x0A,0x8E,"AT+GAPDEVNAME="); //Bit 7 of payload size is also set
+	sprintf(NAME_2,"%c%c%c%c%s",0x10,0x00,0x0A,0x09,"MIPI_Demo");
+
+	Wrap(&BAUD_1, sizeof BAUD_1);
+	HAL_Delay(5);
+	Wrap(&BAUD_2, sizeof BAUD_2);
+	HAL_Delay(5);
+	Wrap(&NAME_1, sizeof NAME_1);
+	HAL_Delay(5);
+	Wrap(&NAME_2, sizeof NAME_2);
+	HAL_Delay(10);
+}
+
+void ble_SPI_WriteByte(uint8_t data) {
+    for (int i = 7; i >= 0; i--) {
+        HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, (data >> i) & 1); //mosi
+
+        HAL_GPIO_WritePin(GPIOF, GPIO_PIN_4, GPIO_PIN_SET); //clk
+        delay_us(1);
+        HAL_GPIO_WritePin(GPIOF, GPIO_PIN_4, GPIO_PIN_RESET); //clk
+        delay_us(1);
+    }
+}
+
+uint8_t ble_SPI_ReadByte(void) {
+    uint8_t data = 0;
+
+    for (int i = 7; i >= 0; i--) {
+        HAL_GPIO_WritePin(GPIOF, GPIO_PIN_4, GPIO_PIN_SET); //clk
+        delay_us(1);
+        data |= (HAL_GPIO_ReadPin(GPIOF, GPIO_PIN_0) << i); //miso
+        HAL_GPIO_WritePin(GPIOF, GPIO_PIN_4, GPIO_PIN_RESET); //clk
+        delay_us(1);
+    }
+
+    return data;
+}
+
+uint8_t ble_SPI_RWByte(uint8_t wdata) {
+    uint8_t rdata = 0;
+
+    for (int i = 7; i >= 0; i--) {
+        HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, (wdata >> i) & 1); //mosi
+
+        HAL_GPIO_WritePin(GPIOF, GPIO_PIN_4, GPIO_PIN_SET); //clk
+        delay_us(1);
+        rdata |= (HAL_GPIO_ReadPin(GPIOF, GPIO_PIN_0) << i); //miso
+        HAL_GPIO_WritePin(GPIOF, GPIO_PIN_4, GPIO_PIN_RESET); //clk
+        delay_us(1);
+    }
+
+    return rdata;
+}
+
+uint8_t ble_read_cmd[] = {0x10,0x02,0x0A,0x00};
+uint8_t ble_ReadBuffer[4], ble_RXBuffer[20], ble_WrapRX[20];
+volatile uint8_t Write_flag, Read_flag, Wrap_error;
+int16_t Rcount=0, Wcount=0;
+void WriteBLE(char *str1, int16_t count) //Writes data bytes to BLE
+{
+ 	 	for (int i=0; i < 4; ++i) //Initialize read buffer
+ 	 	{
+ 	 		ble_ReadBuffer[i] = 0xFA;
+ 	 	}
+	 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_RESET); //Pull CS line low
+	 	delay_us(100); //Required
+        for (int i=0; i < count; ++i)
+	 	{
+        	ble_SPI_WriteByte(str1[i]);
+	 	}
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET); //Pull CS line high
+	 	/* The BLE module acknowledges a write command with the 4 byte string 0x20,0x01,0x0A,0x00.
+	 	Wait ~6 ms in this setup for bytes to arrive on SPI.  */
+        HAL_Delay(6);
+	 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_RESET); //Pull CS line low
+	 	delay_us(100); //100 us
+
+	 	for (int i=0; i < 4; ++i)
+	 	{
+	 		ble_ReadBuffer[i] = ble_SPI_RWByte(0xAA);
+	 	}
+	 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET); //Pull CS line high
+
+	 	if ((ble_ReadBuffer[0] == 0x20)&&(ble_ReadBuffer[1] == 0x01)) Write_flag = 0; //Looking for first two bytes
+	 	else Write_flag = 1;
+	 	if ((ble_ReadBuffer[2] == 0x0A)&&(ble_ReadBuffer[3] == 0x00)) Write_flag = 0; //Looking for last two bytes
+	 	else Write_flag = 1;
+}
+
+void ReadBLE(void) //Reads BYTES from BLE
+{
+	 	for (int i=0; i < 20; i++) //Initialize read buffer
+	 	{
+	 		ble_RXBuffer[i] = 0x00;
+	 	 }
+	 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_RESET); //Pull CS line low
+	 	delay_us(100); //Required delay after CS asserted
+	 	for (int i=0; i < 4; i++)
+	 	{
+	 		ble_SPI_WriteByte(ble_read_cmd[i]);
+	 	}
+	 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET); //Pull CS line high
+	 	/* The BLE module acknowledges the above read command with the 4 byte string 0x20,0x02,0x0A,[num strings],[bytes]
+	 	Wait ~6 ms in this setup for bytes to arrive on SPI.  */
+	 	HAL_Delay(6);
+	 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_RESET); //Pull CS line low
+	 	delay_us(100); //100 us
+	 	for (int i=0; i < 20; i++)
+	 	{
+	 		ble_RXBuffer[i] = ble_SPI_RWByte(0xAA);
+	 		if (i==1) //First two bytes have arrived
+	 		{
+	 			if ((ble_RXBuffer[0]==0x20)&&(ble_RXBuffer[1]==0x02)) ;
+	 			else //Problem on BLE SPI
+	 			{
+	 			 	Read_flag=1;
+	 			 	break;
+	 			}
+	 		}
+	 		else if (i==3) //4th byte indicates size of data string
+	 		{
+	 			Rcount = (int16_t)ble_RXBuffer[3]; //Number of data packets
+	 			if (ble_RXBuffer[3] == 0x00) break;
+	 		}
+	 		else if (i == (Rcount+3))
+	 		{
+ 				HAL_UART_Transmit(&huart4, &ble_RXBuffer[4], Rcount, 1000);
+	 			break; //Run loop until all bytes read
+	 		}
+			else ; //Should never get here
+	 	}
+	 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET); //Pull CS line high
+}
+
+void Wrap(uint8_t *str1, int16_t count)
+{
+ 		for (int i=0; i < 20; i++) //Initialize read buffer
+ 	 	{
+ 			ble_WrapRX[i] = 0xAA;
+ 	 	}
+ 		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_RESET);  //Pull CS line low
+		delay_us(100);
+	 	for (int i=0; i < count; i++)
+	 	{
+	 		ble_SPI_WriteByte(str1[i]);
+	 	}
+	 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET); //Pull CS line high
+	 /* The BLE module acknowledges the above command with the 4 byte string:
+	 	0x20,0x00,0x0A,[bytes in payload], [payload].
+	 	Wait ~6 ms in this setup for MISO bytes to arrive on SPI.  */
+		HAL_Delay(6);
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_RESET);  //Re-assert CS line
+		delay_us(100);
+	 	for (int i=0; i < 20; i++)
+	 	{
+	 		ble_WrapRX[i] = ble_SPI_RWByte(0xAA);
+	 		if (i == 1) //First two bytes have arrived
+	 		{
+	 			if ((ble_WrapRX[0] == 0x20)&&(ble_WrapRX[1] == 0x00)) ;
+	 			else //Problem on BLE SPI
+	 			{
+	 			 	//Wrap_error = 1;
+	 				//HAL_UART_Transmit(&huart4, "error", 5, 1000);
+	 			 	break;
+	 			}
+	 		}
+	 		else if (i==3) //This byte indicates size of payload
+	 		{
+	 			Wcount = (int16_t)ble_WrapRX[3]; //Number of data packets
+	 			if (ble_WrapRX[3] == 0x00) break; //Empty payload
+	 		}
+	 		else if (i == (Wcount+3)) break; //Run loop until all bytes read
+	 		else ;
+	 	}
+	 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET); //Pull CS line high
+}
+///////////////////////ble/////////////////////////
 
 /* USER CODE END 4 */
 

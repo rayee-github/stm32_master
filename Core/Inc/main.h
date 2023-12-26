@@ -57,14 +57,24 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define ble_ncs_Pin GPIO_PIN_3
+#define ble_ncs_GPIO_Port GPIOD
 #define flash_cs_Pin GPIO_PIN_11
 #define flash_cs_GPIO_Port GPIOC
+#define ble_mosi_Pin GPIO_PIN_1
+#define ble_mosi_GPIO_Port GPIOF
+#define ble_miso_Pin GPIO_PIN_0
+#define ble_miso_GPIO_Port GPIOF
 #define flash_mosi_Pin GPIO_PIN_8
 #define flash_mosi_GPIO_Port GPIOF
+#define ble_clk_Pin GPIO_PIN_4
+#define ble_clk_GPIO_Port GPIOF
 #define flash_clk_Pin GPIO_PIN_10
 #define flash_clk_GPIO_Port GPIOF
 #define flash_miso_Pin GPIO_PIN_9
 #define flash_miso_GPIO_Port GPIOF
+#define ble_irq_Pin GPIO_PIN_11
+#define ble_irq_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
 
