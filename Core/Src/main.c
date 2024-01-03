@@ -204,10 +204,14 @@ int main(void)
 		  }
 		  else if (play_mode == 1)
 		  {
+			  uint8_t should_break = 0;
 			  for (int i = 0; i < total_image_in_flash; i++)
 			  {
-				  if (play_mode_source != 0)
+				  if (play_mode_source != 0 || play_mode != 1)
+				  {
+					  should_break = 1;
 					  break;
+				  }
 				  read_flash_page(&frame_buf_flash, i);
 				  frame_buf_count = 0;
 				  for (int i = 0; i < 6400; i += 4)
@@ -222,6 +226,11 @@ int main(void)
 					  frame_buf_count += 2;
 				  }
 				  HAL_Delay(frame_rate);
+				  display_image_number = i;
+			  }
+			  if (should_break == 0)
+			  {
+			      display_image_number = 0;
 			  }
 		  }
 	  }
